@@ -121,10 +121,14 @@ local function location_text(platform)
   end
   local conn = platform.space_connection
   if conn then
-    -- conn.from/to is the prototype's fixed ordering, not the travel direction.
-    local origin = platform.last_visited_space_location
+    -- conn.from/to is the prototype's fixed ordering, not the travel direction. Prefer the current
+    -- schedule target; last_visited_space_location alone proved unreliable.
     local from, to = conn.from.name, conn.to.name
-    if origin and origin.name == to then
+    local schedule = platform.get_schedule()
+    local record = schedule and schedule.current and schedule.get_record({ schedule_index = schedule.current })
+    local target = record and record.station
+    local origin = platform.last_visited_space_location
+    if target == from or (target ~= to and origin and origin.name == to) then
       from, to = to, from
     end
     return "[space-location=" .. from .. "] → [space-location=" .. to .. "]"
