@@ -5,10 +5,16 @@ local UNGROUPED = "<ungrouped>"
 
 local function init_storage()
   storage.collapsed = storage.collapsed or {}
+  storage.locations = storage.locations or {}
 end
 
 script.on_init(init_storage)
 script.on_configuration_changed(init_storage)
+
+local function saved_location(player, name)
+  local by_player = storage.locations and storage.locations[player.index]
+  return by_player and by_player[name]
+end
 
 -- Words of a name, numbers dropped. A rich-text tag like [item=utility-science-pack] is one word.
 local function name_words(name)
@@ -299,7 +305,10 @@ local function open_interrupts(player, key)
 
   local window = player.gui.screen.add({ type = "frame", name = INTERRUPTS, direction = "vertical" })
   local main = player.gui.screen[WINDOW]
-  if main and main.location then
+  local location = saved_location(player, INTERRUPTS)
+  if location then
+    window.location = location
+  elseif main and main.location then
     window.location = { main.location.x + math.floor(400 * player.display_scale), main.location.y }
   else
     window.auto_center = true
@@ -358,7 +367,12 @@ local function toggle(player)
   end
 
   local window = player.gui.screen.add({ type = "frame", name = WINDOW, direction = "vertical" })
-  window.auto_center = true
+  local location = saved_location(player, WINDOW)
+  if location then
+    window.location = location
+  else
+    window.auto_center = true
+  end
 
   local bar = window.add({ type = "flow", direction = "horizontal" })
   bar.drag_target = window
@@ -388,6 +402,16 @@ local function ensure_button(player)
     })
   end
 end
+
+script.on_event(defines.events.on_gui_location_changed, function(event)
+  local name = event.element.name
+  if name ~= WINDOW and name ~= INTERRUPTS then
+    return
+  end
+  storage.locations = storage.locations or {}
+  storage.locations[event.player_index] = storage.locations[event.player_index] or {}
+  storage.locations[event.player_index][name] = event.element.location
+end)
 
 script.on_event(defines.events.on_player_created, function(event)
   ensure_button(game.get_player(event.player_index))
