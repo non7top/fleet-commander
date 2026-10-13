@@ -227,6 +227,13 @@ local function populate(player, force_rebuild)
     row.add({
       type = "button",
       style = "tool_button",
+      caption = "⧉",
+      tooltip = { "platform-groups.copy-tooltip" },
+      tags = { pg_action = "copy_build", group = group.key },
+    })
+    row.add({
+      type = "button",
+      style = "tool_button",
       caption = "»",
       tooltip = { "platform-groups.interrupt-tooltip" },
       tags = { pg_action = "interrupts", group = group.key },
@@ -278,6 +285,121 @@ end
 local function group_platforms(player, key)
   local group = find_group(build_groups(player.force), key)
   return group and collect_platforms(group, {}) or {}
+end
+
+local CAPTURE_RADIUS = 128
+
+-- The runtime API has no getter for a platform's used bounds, so builds reaching further than this
+-- from the hub are clipped.
+local function capture_build(platform)
+  local hub = platform.hub
+  if not (hub and hub.valid) then
+    return nil
+  end
+  local scratch = game.create_inventory(1)
+  local stack = scratch[1]
+  stack.set_stack({ name = "blueprint" })
+  local center = hub.position
+  stack.create_blueprint({
+    surface = platform.surface,
+    force = platform.force,
+    area = {
+      { center.x - CAPTURE_RADIUS, center.y - CAPTURE_RADIUS },
+      { center.x + CAPTURE_RADIUS, center.y + CAPTURE_RADIUS },
+    },
+    always_include_tiles = true,
+  })
+
+  -- The hub can't be built from a blueprint, but its blueprint position tells where each hub sits in it.
+  local entities, hub_offset = {}, nil
+  for _, entity in pairs(stack.get_blueprint_entities() or {}) do
+    if entity.name == "space-platform-hub" then
+      hub_offset = entity.position
+    else
+      entities[#entities + 1] = entity
+    end
+  end
+  local tiles = stack.get_blueprint_tiles() or {}
+  scratch.destroy()
+
+  if not hub_offset then
+    return nil
+  end
+  return { entities = entities, tiles = tiles, hub_offset = hub_offset }
+end
+
+local function apply_build(platform, build)
+  local hub = platform.hub
+  if not (hub and hub.valid) then
+    return 0
+  end
+  local scratch = game.create_inventory(1)
+  local stack = scratch[1]
+  stack.set_stack({ name = "blueprint" })
+  stack.set_blueprint_entities(build.entities)
+  stack.set_blueprint_tiles(build.tiles)
+  local built = stack.build_blueprint({
+    surface = platform.surface,
+    force = platform.force,
+    position = { x = hub.position.x - build.hub_offset.x, y = hub.position.y - build.hub_offset.y },
+    force_build = true,
+  })
+  scratch.destroy()
+  return #built
+end
+
+local function number_of(name)
+  local last
+  for digits in name:gsub("%b[]", ""):gmatch("%d+") do
+    last = tonumber(digits)
+  end
+  return last or math.huge
+end
+
+local function first_platform(platforms)
+  local first
+  for _, platform in ipairs(platforms) do
+    if not first then
+      first = platform
+    else
+      local a, b = number_of(platform.name), number_of(first.name)
+      if a < b or (a == b and platform.name < first.name) then
+        first = platform
+      end
+    end
+  end
+  return first
+end
+
+-- Copies the first platform's build onto the rest as ghosts; nothing is removed. Needs a second click to confirm.
+local function copy_build(player, key)
+  storage.pending_copy = storage.pending_copy or {}
+  local platforms = group_platforms(player, key)
+  local leader = first_platform(platforms)
+  if not leader or #platforms < 2 then
+    return
+  end
+
+  if storage.pending_copy[player.index] ~= key then
+    storage.pending_copy[player.index] = key
+    player.print({ "platform-groups.copy-confirm", leader.name, #platforms - 1 })
+    return
+  end
+  storage.pending_copy[player.index] = nil
+
+  local build = capture_build(leader)
+  if not build then
+    player.print({ "platform-groups.copy-failed", leader.name })
+    return
+  end
+  local copied, ghosts = 0, 0
+  for _, platform in ipairs(platforms) do
+    if platform ~= leader and platform.valid then
+      ghosts = ghosts + apply_build(platform, build)
+      copied = copied + 1
+    end
+  end
+  player.print({ "platform-groups.copied", leader.name, copied, ghosts })
 end
 
 local function open_interrupts(player, key)
@@ -472,7 +594,9 @@ script.on_event(defines.events.on_gui_click, function(event)
 
   local tags = element.tags
   local action = tags and tags.pg_action
-  if action == "interrupts" then
+  if action == "copy_build" then
+    copy_build(player, tags.group)
+  elseif action == "interrupts" then
     open_interrupts(player, tags.group)
   elseif action == "close_interrupts" then
     player.gui.screen[INTERRUPTS].destroy()
