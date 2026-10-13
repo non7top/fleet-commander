@@ -348,6 +348,23 @@ local function apply_build(platform, build)
   return #built
 end
 
+local function enable_request_sections(platform)
+  local hub = platform.hub
+  local point = hub and hub.valid and hub.get_logistic_point(defines.logistic_member_index.space_platform_hub_requester)
+  if not point then
+    return 0
+  end
+  local enabled = 0
+  for i = 1, point.sections_count do
+    local section = point.get_section(i)
+    if section and not section.active then
+      section.active = true
+      enabled = enabled + 1
+    end
+  end
+  return enabled
+end
+
 local function number_of(name)
   local last
   for digits in name:gsub("%b[]", ""):gmatch("%d+") do
@@ -396,6 +413,7 @@ local function copy_build(player, key)
   for _, platform in ipairs(platforms) do
     if platform ~= leader and platform.valid then
       ghosts = ghosts + apply_build(platform, build)
+      enable_request_sections(platform)
       copied = copied + 1
     end
   end
