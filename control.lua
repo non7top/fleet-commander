@@ -348,6 +348,52 @@ local function apply_build(platform, build)
   return #built
 end
 
+local HUB_REQUESTER = defines.logistic_member_index.space_platform_hub_requester
+
+local function hub_point(platform)
+  local hub = platform.hub
+  return hub and hub.valid and hub.get_logistic_point(HUB_REQUESTER) or nil
+end
+
+local function capture_hub_requests(platform)
+  local point = hub_point(platform)
+  if not point then
+    return nil
+  end
+  local sections = {}
+  for i = 1, point.sections_count do
+    local section = point.get_section(i)
+    if section then
+      sections[#sections + 1] = {
+        group = section.group,
+        active = section.active,
+        multiplier = section.multiplier,
+        filters = section.filters,
+      }
+    end
+  end
+  return sections
+end
+
+-- Replaces the target's request sections with the leader's.
+local function apply_hub_requests(platform, sections)
+  local point = hub_point(platform)
+  if not point then
+    return
+  end
+  for i = point.sections_count, 1, -1 do
+    point.remove_section(i)
+  end
+  for _, data in ipairs(sections) do
+    local section = point.add_section(data.group)
+    if section then
+      section.active = data.active
+      section.multiplier = data.multiplier
+      section.filters = data.filters
+    end
+  end
+end
+
 local function enable_request_sections(platform)
   local hub = platform.hub
   local point = hub and hub.valid and hub.get_logistic_point(defines.logistic_member_index.space_platform_hub_requester)
@@ -409,10 +455,14 @@ local function copy_build(player, key)
     player.print({ "platform-groups.copy-failed", leader.name })
     return
   end
+  local requests = capture_hub_requests(leader)
   local copied, ghosts = 0, 0
   for _, platform in ipairs(platforms) do
     if platform ~= leader and platform.valid then
       ghosts = ghosts + apply_build(platform, build)
+      if requests then
+        apply_hub_requests(platform, requests)
+      end
       enable_request_sections(platform)
       copied = copied + 1
     end
