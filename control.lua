@@ -310,13 +310,11 @@ local function capture_build(platform)
     always_include_tiles = true,
   })
 
-  -- The hub can't be built from a blueprint, but its blueprint position tells where each hub sits in it.
-  local entities, hub_offset = {}, nil
-  for _, entity in pairs(stack.get_blueprint_entities() or {}) do
+  -- The hub stays in the blueprint: placed over the follower's own hub it carries the hub's settings across.
+  local entities, hub_offset = stack.get_blueprint_entities() or {}, nil
+  for _, entity in pairs(entities) do
     if entity.name == "space-platform-hub" then
       hub_offset = entity.position
-    else
-      entities[#entities + 1] = entity
     end
   end
   local tiles = stack.get_blueprint_tiles() or {}
