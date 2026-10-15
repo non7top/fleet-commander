@@ -184,6 +184,8 @@ local function signature(player)
   end
   table.sort(parts)
   parts[#parts + 1] = helpers.table_to_json(storage.collapsed[player.index] or {})
+  local loaded = storage.loaded_build and storage.loaded_build[player.index]
+  parts[#parts + 1] = loaded and loaded.key or ""
   return table.concat(parts, "\n")
 end
 
@@ -213,6 +215,9 @@ local function populate(player, force_rebuild)
 
   local add_group
 
+  local loaded_group = storage.loaded_build and storage.loaded_build[player.index]
+  loaded_group = loaded_group and loaded_group.key
+
   local function add_header(parent, group, title, count, indent)
     local is_collapsed = collapsed[group.key]
     local row = parent.add({ type = "flow", direction = "horizontal" })
@@ -224,13 +229,23 @@ local function populate(player, force_rebuild)
       caption = { "", is_collapsed and "▸ " or "▾ ", title, " (", count, ")" },
       tags = { pg_action = "toggle", group = group.key },
     })
-    row.add({
-      type = "button",
-      style = "tool_button",
-      caption = "⧉",
-      tooltip = { "platform-groups.copy-tooltip" },
-      tags = { pg_action = "copy_build", group = group.key },
-    })
+    if loaded_group == group.key then
+      row.add({
+        type = "sprite-button",
+        style = "green_button",
+        sprite = "item/blueprint",
+        tooltip = { "platform-groups.copy-apply-tooltip" },
+        tags = { pg_action = "copy_build", group = group.key },
+      })
+    else
+      row.add({
+        type = "button",
+        style = "tool_button",
+        caption = "⧉",
+        tooltip = { "platform-groups.copy-tooltip" },
+        tags = { pg_action = "copy_build", group = group.key },
+      })
+    end
     row.add({
       type = "button",
       style = "tool_button",
@@ -579,38 +594,62 @@ local function first_platform(platforms)
   return first
 end
 
--- Copies the first platform's build onto the rest as ghosts; nothing is removed. Needs a second click to confirm.
-local function copy_build(player, key)
-  storage.pending_copy = storage.pending_copy or {}
+local function loaded_key(player)
+  local loaded = storage.loaded_build and storage.loaded_build[player.index]
+  return loaded and loaded.key
+end
+
+-- Two steps on one button: the first click snapshots the group's first platform (build, requests, schedule)
+-- into storage, the second applies it to the rest as ghosts and clears what the snapshot has empty.
+-- The snapshot is kept until it is applied, cancelled with a right click, or replaced by another group's.
+local function copy_build(player, key, cancel)
+  storage.loaded_build = storage.loaded_build or {}
+  local loaded = storage.loaded_build[player.index]
+
+  if cancel then
+    if loaded and loaded.key == key then
+      storage.loaded_build[player.index] = nil
+      player.print({ "platform-groups.copy-cancelled", loaded.leader_name })
+      populate(player, true)
+    end
+    return
+  end
+
   local platforms = group_platforms(player, key)
-  local leader = first_platform(platforms)
-  if not leader or #platforms < 2 then
+
+  if not (loaded and loaded.key == key) then
+    local leader = first_platform(platforms)
+    if not leader or #platforms < 2 then
+      return
+    end
+    local build = capture_build(leader)
+    if not build then
+      player.print({ "platform-groups.copy-failed", leader.name })
+      return
+    end
+    storage.loaded_build[player.index] = {
+      key = key,
+      leader_index = leader.index,
+      leader_name = leader.name,
+      build = build,
+      requests = capture_hub_requests(leader),
+      schedule = capture_schedule(leader),
+    }
+    player.print({ "platform-groups.copy-loaded", leader.name, #platforms - 1 })
+    populate(player, true)
     return
   end
 
-  if storage.pending_copy[player.index] ~= key then
-    storage.pending_copy[player.index] = key
-    player.print({ "platform-groups.copy-confirm", leader.name, #platforms - 1 })
-    return
-  end
-  storage.pending_copy[player.index] = nil
-
-  local build = capture_build(leader)
-  if not build then
-    player.print({ "platform-groups.copy-failed", leader.name })
-    return
-  end
-  local requests = capture_hub_requests(leader)
-  local schedule = capture_schedule(leader)
+  storage.loaded_build[player.index] = nil
   local copied, ghosts = 0, 0
   for _, platform in ipairs(platforms) do
-    if platform ~= leader and platform.valid then
-      ghosts = ghosts + apply_build(platform, build)
-      if requests then
-        apply_hub_requests(platform, requests)
+    if platform.index ~= loaded.leader_index and platform.valid then
+      ghosts = ghosts + apply_build(platform, loaded.build)
+      if loaded.requests then
+        apply_hub_requests(platform, loaded.requests)
       end
-      if schedule then
-        if apply_schedule(platform, schedule) ~= #schedule.interrupts then
+      if loaded.schedule then
+        if apply_schedule(platform, loaded.schedule) ~= #loaded.schedule.interrupts then
           player.print({ "platform-groups.interrupts-mismatch", platform.name })
         end
       end
@@ -618,7 +657,8 @@ local function copy_build(player, key)
       copied = copied + 1
     end
   end
-  player.print({ "platform-groups.copied", leader.name, copied, ghosts })
+  player.print({ "platform-groups.copied", loaded.leader_name, copied, ghosts })
+  populate(player, true)
 end
 
 local function open_interrupts(player, key)
@@ -814,7 +854,7 @@ script.on_event(defines.events.on_gui_click, function(event)
   local tags = element.tags
   local action = tags and tags.pg_action
   if action == "copy_build" then
-    copy_build(player, tags.group)
+    copy_build(player, tags.group, event.button == defines.mouse_button_type.right)
   elseif action == "interrupts" then
     open_interrupts(player, tags.group)
   elseif action == "close_interrupts" then
