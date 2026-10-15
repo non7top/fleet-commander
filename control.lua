@@ -223,6 +223,15 @@ local function signature(player)
   return table.concat(parts, "\n")
 end
 
+-- Empty choose-elem buttons render blank; draw a click-through icon over the slot instead.
+local function add_picker_icon(row, sprite)
+  local icon = row.add({ type = "sprite", sprite = sprite, ignored_by_interaction = true })
+  icon.style.size = 24
+  icon.style.left_margin = -32
+  icon.style.top_margin = 8
+  icon.style.right_margin = 8
+end
+
 -- Rebuilding closes an open location picker, so unchanged content is left alone unless forced.
 local function populate(player, force_rebuild)
   local window = player.gui.screen[WINDOW]
@@ -293,7 +302,6 @@ local function populate(player, force_rebuild)
       tooltip = { "platform-groups.interrupt-tooltip" },
       tags = { pg_action = "interrupts", group = group.key },
     })
-    row.add({ type = "label", caption = { "platform-groups.send-label" } })
     row.add({
       type = "choose-elem-button",
       style = "slot_button",
@@ -301,7 +309,7 @@ local function populate(player, force_rebuild)
       tooltip = { "platform-groups.send-tooltip" },
       tags = { pg_action = "send", group = group.key },
     })
-    row.add({ type = "label", caption = { "platform-groups.launch-label" } })
+    add_picker_icon(row, "utility/go_to_arrow")
     row.add({
       type = "choose-elem-button",
       style = "slot_button",
@@ -309,6 +317,7 @@ local function populate(player, force_rebuild)
       tooltip = { "platform-groups.launch-tooltip" },
       tags = { pg_action = "launch", group = group.key },
     })
+    add_picker_icon(row, "utility/add")
     return not is_collapsed
   end
 
