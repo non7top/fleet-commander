@@ -287,19 +287,6 @@ local function group_platforms(player, key)
   return group and collect_platforms(group, {}) or {}
 end
 
-local MARKER = "wooden-chest"
-
--- The highest quality tier, so the marker ghosts are an item nobody has and never get built.
-local function marker_quality()
-  local best
-  for name, quality in pairs(prototypes.quality) do
-    if not best or quality.level > best.level then
-      best = quality
-    end
-  end
-  return best and best.level > 0 and best.name or nil
-end
-
 local function tile_key(x, y)
   return x * 65536 + y
 end
@@ -332,6 +319,51 @@ local function empty_spots(entities, tiles)
     end
   end
   return spots
+end
+
+-- Merges the empty spots into as few rectangles as possible: runs along x, then identical runs stacked along y.
+local function spot_rects(spots)
+  local rows = {}
+  for _, spot in ipairs(spots) do
+    local y = math.floor(spot.y)
+    rows[y] = rows[y] or {}
+    table.insert(rows[y], math.floor(spot.x))
+  end
+
+  local ys = {}
+  for y in pairs(rows) do
+    ys[#ys + 1] = y
+  end
+  table.sort(ys)
+
+  local rects, open = {}, {}
+  for _, y in ipairs(ys) do
+    local xs = rows[y]
+    table.sort(xs)
+    local runs, start, prev = {}, xs[1], xs[1]
+    for i = 2, #xs + 1 do
+      if xs[i] ~= prev + 1 then
+        runs[#runs + 1] = { start, prev + 1 }
+        start = xs[i]
+      end
+      prev = xs[i]
+    end
+
+    local next_open = {}
+    for _, run in ipairs(runs) do
+      local id = run[1] .. ":" .. run[2]
+      local rect = open[id]
+      if rect and rect.y2 == y then
+        rect.y2 = y + 1
+      else
+        rect = { x1 = run[1], y1 = y, x2 = run[2], y2 = y + 1 }
+        rects[#rects + 1] = rect
+      end
+      next_open[id] = rect
+    end
+    open = next_open
+  end
+  return rects
 end
 
 local CAPTURE_RADIUS = 128
@@ -377,16 +409,7 @@ local function capture_build(platform)
     spot_set[tile_key(math.floor(spot.x), math.floor(spot.y))] = true
   end
 
-  -- Marker chests in the empty spots make the superforced stamp clear whatever the follower has there.
-  local quality = marker_quality()
-  if quality then
-    local number = #entities
-    for _, spot in ipairs(spots) do
-      number = number + 1
-      entities[number] = { entity_number = number, name = MARKER, quality = quality, position = spot }
-    end
-  end
-  return { entities = entities, tiles = tiles, hub_offset = hub_offset, spot_set = spot_set }
+  return { entities = entities, tiles = tiles, hub_offset = hub_offset, spot_set = spot_set, clear_rects = spot_rects(spots) }
 end
 
 local function apply_build(platform, build)
@@ -420,23 +443,31 @@ local function apply_build(platform, build)
   })
   for _, ghost in pairs(existing) do
     local key = tile_key(math.floor(ghost.position.x - origin_x), math.floor(ghost.position.y - origin_y))
-    if build.spot_set[key] and not (ghost.ghost_name == MARKER) then
+    if build.spot_set[key] then
       ghost.destroy()
     end
   end
 
-  -- Drop the marker ghosts again so the hub doesn't request chests; the clearing orders stay.
-  local quality = marker_quality()
-  local ghosts = 0
-  for _, entity in pairs(built) do
-    if entity.valid and entity.type == "entity-ghost" and entity.ghost_name == MARKER
-      and entity.quality.name == quality then
-      entity.destroy()
-    else
-      ghosts = ghosts + 1
-    end
+  -- Mark built entities on the template's empty spots for deconstruction. Shrunk inwards so neighbours
+  -- that only touch the edge aren't selected; tiles are never selected.
+  local planner_inventory = game.create_inventory(1)
+  local planner = planner_inventory[1]
+  planner.set_stack({ name = "deconstruction-planner" })
+  planner.tile_selection_mode = defines.deconstruction_item.tile_selection_mode.never
+  for _, rect in ipairs(build.clear_rects) do
+    platform.surface.deconstruct_area({
+      area = {
+        { origin_x + rect.x1 + 0.1, origin_y + rect.y1 + 0.1 },
+        { origin_x + rect.x2 - 0.1, origin_y + rect.y2 - 0.1 },
+      },
+      force = platform.force,
+      item = planner,
+      super_forced = true,
+    })
   end
-  return ghosts
+  planner_inventory.destroy()
+
+  return #built
 end
 
 local HUB_REQUESTER = defines.logistic_member_index.space_platform_hub_requester
