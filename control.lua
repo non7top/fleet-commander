@@ -340,7 +340,7 @@ local function apply_build(platform, build)
     surface = platform.surface,
     force = platform.force,
     position = { x = hub.position.x - build.hub_offset.x, y = hub.position.y - build.hub_offset.y },
-    force_build = true,
+    build_mode = defines.build_mode.superforced,
   })
   scratch.destroy()
   return #built
