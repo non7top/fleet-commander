@@ -177,6 +177,14 @@ local function send_to_location(platform, location)
   return true
 end
 
+local LOADED_BUILD_TTL = 60 * 60
+
+local function drop_loaded_build(player)
+  if storage.loaded_build then
+    storage.loaded_build[player.index] = nil
+  end
+end
+
 local function signature(player)
   local parts = {}
   for _, platform in pairs(player.force.platforms) do
@@ -631,6 +639,7 @@ local function copy_build(player, key, cancel)
       key = key,
       leader_index = leader.index,
       leader_name = leader.name,
+      tick = game.tick,
       build = build,
       requests = capture_hub_requests(leader),
       schedule = capture_schedule(leader),
@@ -745,6 +754,7 @@ local function toggle(player)
   local existing = player.gui.screen[WINDOW]
   if existing then
     existing.destroy()
+    drop_loaded_build(player)
     if player.gui.screen[INTERRUPTS] then
       player.gui.screen[INTERRUPTS].destroy()
     end
@@ -813,6 +823,7 @@ end)
 script.on_event(defines.events.on_gui_closed, function(event)
   if event.element and event.element.name == WINDOW then
     event.element.destroy()
+    drop_loaded_build(game.get_player(event.player_index))
     local interrupts = game.get_player(event.player_index).gui.screen[INTERRUPTS]
     if interrupts then
       interrupts.destroy()
@@ -893,6 +904,11 @@ local function unhide_platform_surfaces()
 end
 
 script.on_nth_tick(60, function()
+  for player_index, loaded in pairs(storage.loaded_build or {}) do
+    if game.tick - loaded.tick >= LOADED_BUILD_TTL then
+      storage.loaded_build[player_index] = nil
+    end
+  end
   if not storage.surfaces_unhidden then
     unhide_platform_surfaces()
     storage.surfaces_unhidden = true
