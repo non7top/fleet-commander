@@ -486,13 +486,19 @@ local function capture_schedule(platform)
   return { records = schedule.get_records() or {}, interrupts = schedule.get_interrupts() or {} }
 end
 
--- Interrupts go first: their targets are independent of the main record list.
+-- Records first, then interrupts one by one: set_interrupts did not stick on followers. Returns the
+-- follower's interrupt count afterwards so a mismatch can be reported.
 local function apply_schedule(platform, data)
   local schedule = platform.get_schedule()
-  if schedule then
-    schedule.set_interrupts(data.interrupts)
-    schedule.set_records(data.records)
+  if not schedule then
+    return 0
   end
+  schedule.set_records(data.records)
+  schedule.clear_interrupts()
+  for _, interrupt in ipairs(data.interrupts) do
+    schedule.add_interrupt(interrupt)
+  end
+  return schedule.interrupt_count
 end
 
 local function number_of(name)
@@ -549,7 +555,9 @@ local function copy_build(player, key)
         apply_hub_requests(platform, requests)
       end
       if schedule then
-        apply_schedule(platform, schedule)
+        if apply_schedule(platform, schedule) ~= #schedule.interrupts then
+          player.print({ "platform-groups.interrupts-mismatch", platform.name })
+        end
       end
       enable_request_sections(platform)
       copied = copied + 1
