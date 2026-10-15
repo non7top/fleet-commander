@@ -287,6 +287,42 @@ local function group_platforms(player, key)
   return group and collect_platforms(group, {}) or {}
 end
 
+local MARKER = "negative-space"
+
+local function tile_key(x, y)
+  return x * 65536 + y
+end
+
+-- Foundation tiles that no entity covers. Blueprint tile positions are tile corners.
+local function empty_spots(entities, tiles)
+  local covered = {}
+  for _, entity in pairs(entities) do
+    local prototype = prototypes.entity[entity.name]
+    local box = prototype and prototype.collision_box
+    if box then
+      local left, top, right, bottom = box.left_top.x, box.left_top.y, box.right_bottom.x, box.right_bottom.y
+      if entity.direction == 4 or entity.direction == 12 then
+        left, top, right, bottom = top, left, bottom, right
+      end
+      local position = entity.position
+      for x = math.floor(position.x + left + 0.01), math.floor(position.x + right - 0.01) do
+        for y = math.floor(position.y + top + 0.01), math.floor(position.y + bottom - 0.01) do
+          covered[tile_key(x, y)] = true
+        end
+      end
+    end
+  end
+
+  local spots = {}
+  for _, tile in pairs(tiles) do
+    local x, y = tile.position.x, tile.position.y
+    if not covered[tile_key(x, y)] then
+      spots[#spots + 1] = { x = x + 0.5, y = y + 0.5 }
+    end
+  end
+  return spots
+end
+
 local CAPTURE_RADIUS = 128
 
 -- The runtime API has no getter for a platform's used bounds, so builds reaching further than this
@@ -323,10 +359,19 @@ local function capture_build(platform)
   if not hub_offset then
     return nil
   end
+
+  -- Negative Space markers in the empty spots make the superforced stamp clear whatever the follower has there.
+  if prototypes.entity[MARKER] then
+    local number = #entities
+    for _, spot in ipairs(empty_spots(entities, tiles)) do
+      number = number + 1
+      entities[number] = { entity_number = number, name = MARKER, position = spot }
+    end
+  end
   return { entities = entities, tiles = tiles, hub_offset = hub_offset }
 end
 
-local function apply_build(platform, build)
+local function apply_build(platform, build, player)
   local hub = platform.hub
   if not (hub and hub.valid) then
     return 0
@@ -341,6 +386,7 @@ local function apply_build(platform, build)
     force = platform.force,
     position = { x = hub.position.x - build.hub_offset.x, y = hub.position.y - build.hub_offset.y },
     build_mode = defines.build_mode.superforced,
+    by_player = player,
   })
   scratch.destroy()
   return #built
@@ -475,7 +521,7 @@ local function copy_build(player, key)
   local copied, ghosts = 0, 0
   for _, platform in ipairs(platforms) do
     if platform ~= leader and platform.valid then
-      ghosts = ghosts + apply_build(platform, build)
+      ghosts = ghosts + apply_build(platform, build, player)
       if requests then
         apply_hub_requests(platform, requests)
       end

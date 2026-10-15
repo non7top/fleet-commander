@@ -5,5 +5,5 @@
   "author": "Player",
   "description": "A panel listing space platforms grouped by common name prefix (e.g. \"Cargo 1\", \"Cargo 2\" -> Cargo). Display only: never renames platforms or touches schedules, requests or builds.",
   "factorio_version": "2.1",
-  "dependencies": ["base >= 2.1.0", "space-age"]
+  "dependencies": ["base >= 2.1.0", "space-age", "? negative_space"]
 }
