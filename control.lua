@@ -720,6 +720,12 @@ local function open_interrupts(player, key)
   local scroll = content.add({ type = "scroll-pane", direction = "vertical" })
   scroll.style.minimal_width = 260
   scroll.style.maximal_height = math.floor(player.display_resolution.height / player.display_scale * 0.6)
+  scroll.add({
+    type = "button",
+    caption = { "platform-groups.cancel-stops" },
+    tooltip = { "platform-groups.cancel-stops-tooltip" },
+    tags = { pg_action = "cancel_stops", group = key },
+  })
   if #order == 0 then
     scroll.add({ type = "label", caption = { "platform-groups.no-interrupts" } })
   end
@@ -731,6 +737,24 @@ local function open_interrupts(player, key)
       tags = { pg_action = "activate_interrupt", group = key, interrupt = name },
     })
   end
+end
+
+-- Removes the temporary stops (added by activated interrupts or by the planet picker) from each platform's list.
+local function cancel_temporary_stops(player, key)
+  local removed = 0
+  for _, platform in ipairs(group_platforms(player, key)) do
+    local schedule = platform.valid and platform.get_schedule()
+    local records = schedule and schedule.get_records()
+    if records then
+      for i = #records, 1, -1 do
+        if records[i].temporary or records[i].created_by_interrupt then
+          schedule.remove_record({ schedule_index = i })
+          removed = removed + 1
+        end
+      end
+    end
+  end
+  player.print({ "platform-groups.cancelled-stops", removed })
 end
 
 local function activate_interrupt(player, key, name)
@@ -870,6 +894,8 @@ script.on_event(defines.events.on_gui_click, function(event)
     open_interrupts(player, tags.group)
   elseif action == "close_interrupts" then
     player.gui.screen[INTERRUPTS].destroy()
+  elseif action == "cancel_stops" then
+    cancel_temporary_stops(player, tags.group)
   elseif action == "activate_interrupt" then
     activate_interrupt(player, tags.group, tags.interrupt)
   elseif action == "close" then
