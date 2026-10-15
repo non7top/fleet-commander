@@ -158,7 +158,9 @@ local function find_group(groups, key)
   end
 end
 
--- Adds a temporary stop right after the current record and heads there; the platform then resumes its schedule.
+-- Adds a temporary stop right after the current record and heads there; it leaves after the wait and resumes its schedule.
+local SEND_STOP_TICKS = 30 * 60
+
 local function send_to_location(platform, location)
   local schedule = platform.get_schedule()
   if not schedule then
@@ -168,6 +170,7 @@ local function send_to_location(platform, location)
   local index = schedule.add_record({
     station = location,
     temporary = true,
+    wait_conditions = { { type = "time", ticks = SEND_STOP_TICKS } },
     index = { schedule_index = current + 1 },
   })
   if not index then
