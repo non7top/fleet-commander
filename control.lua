@@ -371,16 +371,22 @@ local function capture_build(platform)
     return nil
   end
 
+  local spots = empty_spots(entities, tiles)
+  local spot_set = {}
+  for _, spot in ipairs(spots) do
+    spot_set[tile_key(math.floor(spot.x), math.floor(spot.y))] = true
+  end
+
   -- Marker chests in the empty spots make the superforced stamp clear whatever the follower has there.
   local quality = marker_quality()
   if quality then
     local number = #entities
-    for _, spot in ipairs(empty_spots(entities, tiles)) do
+    for _, spot in ipairs(spots) do
       number = number + 1
       entities[number] = { entity_number = number, name = MARKER, quality = quality, position = spot }
     end
   end
-  return { entities = entities, tiles = tiles, hub_offset = hub_offset }
+  return { entities = entities, tiles = tiles, hub_offset = hub_offset, spot_set = spot_set }
 end
 
 local function apply_build(platform, build)
@@ -400,6 +406,24 @@ local function apply_build(platform, build)
     build_mode = defines.build_mode.superforced,
   })
   scratch.destroy()
+
+  -- Deconstruction doesn't apply to ghosts, so ghosts the follower has on the template's empty spots are
+  -- cancelled directly.
+  local origin_x, origin_y = hub.position.x - build.hub_offset.x, hub.position.y - build.hub_offset.y
+  local center = hub.position
+  local existing = platform.surface.find_entities_filtered({
+    type = "entity-ghost",
+    area = {
+      { center.x - CAPTURE_RADIUS, center.y - CAPTURE_RADIUS },
+      { center.x + CAPTURE_RADIUS, center.y + CAPTURE_RADIUS },
+    },
+  })
+  for _, ghost in pairs(existing) do
+    local key = tile_key(math.floor(ghost.position.x - origin_x), math.floor(ghost.position.y - origin_y))
+    if build.spot_set[key] and not (ghost.ghost_name == MARKER) then
+      ghost.destroy()
+    end
+  end
 
   -- Drop the marker ghosts again so the hub doesn't request chests; the clearing orders stay.
   local quality = marker_quality()
