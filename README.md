@@ -4,6 +4,8 @@ Factorio 2.1 (Space Age) mod. A panel that groups space platforms by common name
 
 Open with the top-bar button or `CONTROL + SHIFT + P`.
 
+![Fleet Commander panel](docs/screenshot.png)
+
 ## Features
 
 - Unlimited-depth grouping by leading name words; icon tags count as one word, numbers are ignored; lone platforms go to "Ungrouped".
