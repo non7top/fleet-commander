@@ -411,6 +411,23 @@ local function enable_request_sections(platform)
   return enabled
 end
 
+local function capture_schedule(platform)
+  local schedule = platform.get_schedule()
+  if not schedule then
+    return nil
+  end
+  return { records = schedule.get_records() or {}, interrupts = schedule.get_interrupts() or {} }
+end
+
+-- Interrupts go first: their targets are independent of the main record list.
+local function apply_schedule(platform, data)
+  local schedule = platform.get_schedule()
+  if schedule then
+    schedule.set_interrupts(data.interrupts)
+    schedule.set_records(data.records)
+  end
+end
+
 local function number_of(name)
   local last
   for digits in name:gsub("%b[]", ""):gmatch("%d+") do
@@ -456,12 +473,16 @@ local function copy_build(player, key)
     return
   end
   local requests = capture_hub_requests(leader)
+  local schedule = capture_schedule(leader)
   local copied, ghosts = 0, 0
   for _, platform in ipairs(platforms) do
     if platform ~= leader and platform.valid then
       ghosts = ghosts + apply_build(platform, build)
       if requests then
         apply_hub_requests(platform, requests)
+      end
+      if schedule then
+        apply_schedule(platform, schedule)
       end
       enable_request_sections(platform)
       copied = copied + 1
