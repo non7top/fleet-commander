@@ -1,9 +1,9 @@
 {
-  "name": "platform-groups",
+  "name": "fleet-command",
   "version": "0.1.0",
-  "title": "Platform Groups",
-  "author": "Player",
-  "description": "A panel listing space platforms grouped by common name prefix (e.g. \"Cargo 1\", \"Cargo 2\" -> Cargo). Display only: never renames platforms or touches schedules, requests or builds.",
+  "title": "Fleet Command",
+  "author": "non7top",
+  "description": "Group space platforms by common name prefix and manage each group at once: send, copy builds, activate interrupts, launch new platforms, spot idle ones.",
   "factorio_version": "2.1",
   "dependencies": ["base >= 2.1.0", "space-age"]
 }
