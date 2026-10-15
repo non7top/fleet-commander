@@ -114,6 +114,29 @@ local function build_groups(force)
   return groups
 end
 
+local STUCK_TICKS = 10 * 60 * 60
+
+-- Idle platforms: paused or without a schedule/path, or parked at a stop for longer than STUCK_TICKS.
+-- Returns a short text and whether it is an idle state, or nil for a working platform.
+local function idle_status(platform)
+  local state = platform.state
+  local states = defines.space_platform_state
+  if state == states.paused then
+    return "⏸ paused"
+  elseif state == states.no_schedule then
+    return "⚠ no schedule"
+  elseif state == states.no_path then
+    return "⚠ no path"
+  elseif state == states.waiting_at_station then
+    local schedule = platform.get_schedule()
+    local waited = schedule and schedule.ticks_in_station or 0
+    if waited >= STUCK_TICKS then
+      return "⚠ stuck " .. math.floor(waited / 3600) .. " min"
+    end
+  end
+  return nil
+end
+
 local function location_text(platform)
   local loc = platform.space_location
   if loc then
@@ -191,7 +214,7 @@ end
 local function signature(player)
   local parts = {}
   for _, platform in pairs(player.force.platforms) do
-    parts[#parts + 1] = platform.index .. platform.name .. location_text(platform)
+    parts[#parts + 1] = platform.index .. platform.name .. location_text(platform) .. (idle_status(platform) or "")
   end
   table.sort(parts)
   parts[#parts + 1] = helpers.table_to_json(storage.collapsed[player.index] or {})
@@ -230,6 +253,12 @@ local function populate(player, force_rebuild)
   loaded_group = loaded_group and loaded_group.key
 
   local function add_header(parent, group, title, count, indent)
+    local idle_count = 0
+    for _, platform in ipairs(collect_platforms(group, {})) do
+      if idle_status(platform) then
+        idle_count = idle_count + 1
+      end
+    end
     local is_collapsed = collapsed[group.key]
     local row = parent.add({ type = "flow", direction = "horizontal" })
     row.style.left_margin = indent
@@ -237,7 +266,7 @@ local function populate(player, force_rebuild)
     row.add({
       type = "button",
       style = "list_box_item",
-      caption = { "", is_collapsed and "▸ " or "▾ ", title, " (", count, ")" },
+      caption = { "", is_collapsed and "▸ " or "▾ ", title, " (", count, ")", idle_count > 0 and (" ⚠ " .. idle_count) or "" },
       tags = { pg_action = "toggle", group = group.key },
     })
     if loaded_group == group.key then
@@ -275,7 +304,7 @@ local function populate(player, force_rebuild)
   end
 
   local function add_rows(members, indent)
-    local rows = list.add({ type = "table", column_count = 2 })
+    local rows = list.add({ type = "table", column_count = 3 })
     rows.style.left_margin = indent
     rows.style.horizontal_spacing = 12
     for _, member in ipairs(members) do
@@ -287,6 +316,9 @@ local function populate(player, force_rebuild)
         tags = { pg_action = "open", platform_index = platform.index },
       })
       rows.add({ type = "label", caption = location_text(platform) })
+      local idle = idle_status(platform)
+      local status = rows.add({ type = "label", caption = idle or "" })
+      status.style.font_color = { 1, 0.6, 0.2 }
     end
   end
 
