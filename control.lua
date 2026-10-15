@@ -287,7 +287,18 @@ local function group_platforms(player, key)
   return group and collect_platforms(group, {}) or {}
 end
 
-local MARKER = "negative-space"
+local MARKER = "wooden-chest"
+
+-- The highest quality tier, so the marker ghosts are an item nobody has and never get built.
+local function marker_quality()
+  local best
+  for name, quality in pairs(prototypes.quality) do
+    if not best or quality.level > best.level then
+      best = quality
+    end
+  end
+  return best and best.level > 0 and best.name or nil
+end
 
 local function tile_key(x, y)
   return x * 65536 + y
@@ -360,18 +371,19 @@ local function capture_build(platform)
     return nil
   end
 
-  -- Negative Space markers in the empty spots make the superforced stamp clear whatever the follower has there.
-  if prototypes.entity[MARKER] then
+  -- Marker chests in the empty spots make the superforced stamp clear whatever the follower has there.
+  local quality = marker_quality()
+  if quality then
     local number = #entities
     for _, spot in ipairs(empty_spots(entities, tiles)) do
       number = number + 1
-      entities[number] = { entity_number = number, name = MARKER, position = spot }
+      entities[number] = { entity_number = number, name = MARKER, quality = quality, position = spot }
     end
   end
   return { entities = entities, tiles = tiles, hub_offset = hub_offset }
 end
 
-local function apply_build(platform, build, player)
+local function apply_build(platform, build)
   local hub = platform.hub
   if not (hub and hub.valid) then
     return 0
@@ -386,10 +398,21 @@ local function apply_build(platform, build, player)
     force = platform.force,
     position = { x = hub.position.x - build.hub_offset.x, y = hub.position.y - build.hub_offset.y },
     build_mode = defines.build_mode.superforced,
-    by_player = player,
   })
   scratch.destroy()
-  return #built
+
+  -- Drop the marker ghosts again so the hub doesn't request chests; the clearing orders stay.
+  local quality = marker_quality()
+  local ghosts = 0
+  for _, entity in pairs(built) do
+    if entity.valid and entity.type == "entity-ghost" and entity.ghost_name == MARKER
+      and entity.quality.name == quality then
+      entity.destroy()
+    else
+      ghosts = ghosts + 1
+    end
+  end
+  return ghosts
 end
 
 local HUB_REQUESTER = defines.logistic_member_index.space_platform_hub_requester
@@ -521,7 +544,7 @@ local function copy_build(player, key)
   local copied, ghosts = 0, 0
   for _, platform in ipairs(platforms) do
     if platform ~= leader and platform.valid then
-      ghosts = ghosts + apply_build(platform, build, player)
+      ghosts = ghosts + apply_build(platform, build)
       if requests then
         apply_hub_requests(platform, requests)
       end
