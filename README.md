@@ -1,4 +1,4 @@
-# Fleet Command
+# Fleet Commander
 
 Factorio 2.1 (Space Age) mod. A panel that groups space platforms by common name prefix ("Cargo 1", "Cargo 2" -> Cargo) and acts on a whole group at once.
 

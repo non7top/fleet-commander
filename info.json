@@ -1,7 +1,7 @@
 {
-  "name": "fleet-command",
+  "name": "fleet-commander",
   "version": "0.1.0",
-  "title": "Fleet Command",
+  "title": "Fleet Commander",
   "author": "non7top",
   "description": "Group space platforms by common name prefix and manage each group at once: send, copy builds, activate interrupts, launch new platforms, spot idle ones.",
   "factorio_version": "2.1",
