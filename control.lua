@@ -300,6 +300,13 @@ local function populate(player, force_rebuild)
       tooltip = { "platform-groups.send-tooltip" },
       tags = { pg_action = "send", group = group.key },
     })
+    row.add({
+      type = "choose-elem-button",
+      style = "slot_button",
+      elem_type = "space-location",
+      tooltip = { "platform-groups.launch-tooltip" },
+      tags = { pg_action = "launch", group = group.key },
+    })
     return not is_collapsed
   end
 
@@ -637,6 +644,98 @@ local function first_platform(platforms)
   return first
 end
 
+local function capture_snapshot(leader)
+  local build = capture_build(leader)
+  if not build then
+    return nil
+  end
+  return { build = build, requests = capture_hub_requests(leader), schedule = capture_schedule(leader) }
+end
+
+-- Applies a snapshot to one platform; returns the number of ghosts placed.
+local function apply_snapshot(platform, snapshot, player)
+  local ghosts = apply_build(platform, snapshot.build)
+  if snapshot.requests then
+    apply_hub_requests(platform, snapshot.requests)
+  end
+  if snapshot.schedule then
+    local count = apply_schedule(platform, snapshot.schedule)
+    if player and count ~= #snapshot.schedule.interrupts then
+      player.print({ "platform-groups.interrupts-mismatch", platform.name })
+    end
+  end
+  enable_request_sections(platform)
+  return ghosts
+end
+
+-- Next name in the group: the first platform's name with its number replaced by the highest number + 1.
+local function next_platform_name(leader_name, platforms)
+  local highest = 0
+  for _, platform in ipairs(platforms) do
+    local number = number_of(platform.name)
+    if number ~= math.huge and number > highest then
+      highest = number
+    end
+  end
+
+  local masked = leader_name:gsub("%b[]", function(tag)
+    return string.rep("_", #tag)
+  end)
+  local from, to
+  for first, last in masked:gmatch("()%d+()") do
+    from, to = first, last
+  end
+  if not from then
+    return leader_name .. " " .. (highest + 1)
+  end
+  return leader_name:sub(1, from - 1) .. (highest + 1) .. leader_name:sub(to)
+end
+
+local STARTER_PACK = "space-platform-starter-pack"
+
+-- Creates a platform in the group at the chosen planet. Its build, requests and schedule are copied from the
+-- group's first platform once the starter pack has been delivered and the hub exists (see the tick handler).
+local function launch_platform(player, key, planet)
+  local platforms = group_platforms(player, key)
+  local leader = first_platform(platforms)
+  if not leader then
+    return
+  end
+  if not prototypes.item[STARTER_PACK] then
+    player.print({ "platform-groups.launch-failed" })
+    return
+  end
+  local platform = player.force.create_space_platform({
+    name = next_platform_name(leader.name, platforms),
+    planet = planet,
+    starter_pack = STARTER_PACK,
+  })
+  if not platform then
+    player.print({ "platform-groups.launch-failed" })
+    return
+  end
+  storage.pending_launches = storage.pending_launches or {}
+  storage.pending_launches[platform.index] = { force_index = player.force.index, leader_index = leader.index }
+  player.print({ "platform-groups.launched", platform.name, "[space-location=" .. planet .. "]" })
+end
+
+local function finish_pending_launches()
+  for index, pending in pairs(storage.pending_launches or {}) do
+    local force = game.forces[pending.force_index]
+    local platform = force and force.platforms[index]
+    if not (platform and platform.valid) then
+      storage.pending_launches[index] = nil
+    elseif platform.hub and platform.hub.valid then
+      local leader = force.platforms[pending.leader_index]
+      local snapshot = leader and leader.valid and capture_snapshot(leader)
+      if snapshot then
+        apply_snapshot(platform, snapshot)
+      end
+      storage.pending_launches[index] = nil
+    end
+  end
+end
+
 local function loaded_key(player)
   local loaded = storage.loaded_build and storage.loaded_build[player.index]
   return loaded and loaded.key
@@ -665,20 +764,16 @@ local function copy_build(player, key, cancel)
     if not leader or #platforms < 2 then
       return
     end
-    local build = capture_build(leader)
-    if not build then
+    local snapshot = capture_snapshot(leader)
+    if not snapshot then
       player.print({ "platform-groups.copy-failed", leader.name })
       return
     end
-    storage.loaded_build[player.index] = {
-      key = key,
-      leader_index = leader.index,
-      leader_name = leader.name,
-      tick = game.tick,
-      build = build,
-      requests = capture_hub_requests(leader),
-      schedule = capture_schedule(leader),
-    }
+    snapshot.key = key
+    snapshot.leader_index = leader.index
+    snapshot.leader_name = leader.name
+    snapshot.tick = game.tick
+    storage.loaded_build[player.index] = snapshot
     player.print({ "platform-groups.copy-loaded", leader.name, #platforms - 1 })
     populate(player, true)
     return
@@ -688,16 +783,7 @@ local function copy_build(player, key, cancel)
   local copied, ghosts = 0, 0
   for _, platform in ipairs(platforms) do
     if platform.index ~= loaded.leader_index and platform.valid then
-      ghosts = ghosts + apply_build(platform, loaded.build)
-      if loaded.requests then
-        apply_hub_requests(platform, loaded.requests)
-      end
-      if loaded.schedule then
-        if apply_schedule(platform, loaded.schedule) ~= #loaded.schedule.interrupts then
-          player.print({ "platform-groups.interrupts-mismatch", platform.name })
-        end
-      end
-      enable_request_sections(platform)
+      ghosts = ghosts + apply_snapshot(platform, loaded, player)
       copied = copied + 1
     end
   end
@@ -893,12 +979,18 @@ end)
 script.on_event(defines.events.on_gui_elem_changed, function(event)
   local element = event.element
   local tags = element.tags
-  if not (tags and tags.pg_action == "send") or not element.elem_value then
+  local action = tags and tags.pg_action
+  if (action ~= "send" and action ~= "launch") or not element.elem_value then
     return
   end
   local player = game.get_player(event.player_index)
   local location = element.elem_value
   element.elem_value = nil
+
+  if action == "launch" then
+    launch_platform(player, tags.group, location)
+    return
+  end
 
   local group = find_group(build_groups(player.force), tags.group)
   if not group then
@@ -965,6 +1057,7 @@ local function unhide_platform_surfaces()
 end
 
 script.on_nth_tick(60, function()
+  finish_pending_launches()
   for player_index, loaded in pairs(storage.loaded_build or {}) do
     if game.tick - loaded.tick >= LOADED_BUILD_TTL then
       storage.loaded_build[player_index] = nil
