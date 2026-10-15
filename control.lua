@@ -293,6 +293,7 @@ local function populate(player, force_rebuild)
       tooltip = { "platform-groups.interrupt-tooltip" },
       tags = { pg_action = "interrupts", group = group.key },
     })
+    row.add({ type = "label", caption = { "platform-groups.send-label" } })
     row.add({
       type = "choose-elem-button",
       style = "slot_button",
@@ -300,6 +301,7 @@ local function populate(player, force_rebuild)
       tooltip = { "platform-groups.send-tooltip" },
       tags = { pg_action = "send", group = group.key },
     })
+    row.add({ type = "label", caption = { "platform-groups.launch-label" } })
     row.add({
       type = "choose-elem-button",
       style = "slot_button",
